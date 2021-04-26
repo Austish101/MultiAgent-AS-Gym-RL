@@ -1,151 +1,161 @@
-import gym
-import numpy as np
-from envs.AS_GymEnv import AS_GymEnv
-x_min = -500
-x_max = 500
-y_min = -500
-y_max = 500
-z_min = 20
-z_max = 220
-cube_size = 50
-destinations = [[-475, -475, 45], [-475, 475, 45], [475, -475, 45], [475, 475, 45]]
-actions = 6
-
-env = AS_GymEnv(x_min, x_max, y_min, y_max, z_min, z_max, cube_size, len(destinations), actions)
-
-# x_axis = (abs(x_min) + abs(x_max)) / cube_size
-# y_axis = (abs(y_min) + abs(y_max)) / cube_size
-# z_axis = (abs(z_min) + abs(z_max)) / cube_size
-# obs_space = (x_axis * y_axis * z_axis) * total_destinations
-# act_space = actions
-
-x_axis = (abs(x_min) + abs(x_max)) / cube_size
-y_axis = (abs(y_min) + abs(y_max)) / cube_size
-z_axis = (abs(z_min) + abs(z_max)) / cube_size
-locations = (x_axis * y_axis * z_axis)
+import csv
+import time
+from envs.AS_GymEnv import ASGymEnv
+from envs.NoSim_GymEnv import GymEnv
 
 
-def get_next_state(observation, action):
-    # get next state given current state and action, prevent movement that isn't possible
+def save_paths(x_axis, y_axis, z_axis, blue_count, red_count, states, obstacles, time_taken):
+    with open("paths.csv", mode='w') as path_file:
+        path_writer = csv.writer(path_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-    states_by_dests = states_in_env
-    i = 1
-    while observation > states_by_dests:
-        i += 1
-        states_by_dests = states_by_dests * i
+        path_writer.writerow([x_axis, y_axis, z_axis, blue_count, red_count, obstacles, time_taken])
 
-    obs_location = observation - (states_by_dests - states_in_env)
-    xy_plane = x_axis * y_axis
-
-    # work out next state, if possible
-    if action == 1:
-        # if drone at max x, no move
-        if obs_location <= x_axis:
-            return observation
-        for z in range(1, z_axis - 1):
-            if (xy_plane * z) < obs_location <= ((xy_plane * z) + x_axis):
-                return observation
-
-        # next state:
-        next_state = observation - x_axis
-
-    elif action == 2:
-        # if drone at min x, no move
-        if (xy_plane - x_axis) < obs_location <= xy_plane:
-            return observation
-        for z in range(1, z_axis - 1):
-            if ((xy_plane - x_axis) * z) < obs_location <= (xy_plane * z):
-                return observation
-
-        # next state:
-        next_state = observation + x_axis
-
-    elif action == 3:
-        # if drone at max y, no move
-        if obs_location % x_axis == 0:
-            return observation
-
-        # next state:
-        next_state = observation + 1
-
-    elif action == 4:
-        # if drone at min y, no move
-        if (obs_location - 1) % x_axis == 0:
-            return observation
-
-        # next state:
-        next_state = observation - 1
-
-    elif action == 5:
-        # if drone at max z, no move
-        if (xy_plane * (z_axis - 1)) < obs_location <= (xy_plane * z_axis):
-            return observation
-
-        # next state:
-        next_state = observation + xy_plane
-
-    elif action == 6:
-        # if drone at min z, no move
-        if obs_location <= xy_plane:
-            return observation
-
-        # next state:
-        next_state = observation + xy_plane
-
-    return next_state
+        for i in range(0, len(states)):
+            path_writer.writerow(states[i])
 
 
-def find_destination(destination):
-    # given destination coords, find the state it resides in and update it
-    target_coords = destinations[destination]
-    obs_state = 0
+def read_agent_data(env, blue, red):
+    env.Agent1.read_data("Agent1.csv")
+    if blue >= 2:
+        env.Agent2.read_data("Agent2.csv")
+    if red >= 1:
+        env.Agent3.read_data("Agent3.csv")
+    if red >= 2:
+        env.Agent4.read_data("Agent4.csv")
 
-# init Q-table:
-# Each observation has the amount of actions in the action space, each action has (probability, nextstate, reward, done)
-Q_table = np.zeros((env.observation_space.n + 1, env.action_space.n, 4))
 
-# NOTE: obs index 0 is left empty for ease of use, 1 starts at min x, min y, min z (back, left, bottom
-#   <x axis>  <z=1>       <z=2>
-#   1, 2, 3,  <           10, 11, 12,
-#   4, 5, 6,  y axis      13, 14, 15,     etc...
-#   7, 8, 9,  >           16, 17, 18,
+def get_actions(env, blue, red, observation):
+    action2 = -1
+    action3 = -1
+    action4 = -1
 
-states_in_env = env.observation_space.n / len(destinations)
+    action1 = env.Agent1.get_action(observation[0])
+    if blue >= 2:
+        action2 = env.Agent2.get_action(observation[1])
+    if red >= 1:
+        action3 = env.Agent3.get_action(observation[2])
+    if red >= 2:
+        action4 = env.Agent4.get_action(observation[3])
 
-# fill Q-table with correct (probability, nextstate, reward, destination?)
-for dests in range(0, len(destinations)):
-    if dests == 0:
-        for obs in range(1, states_in_env):
-            for acs in range(0, env.action_space.n):
-                Q_table[obs, acs, 0] = 1.0                          # probability
-                Q_table[obs, acs, 1] = get_next_state(obs, acs)     # nextstate
-                ...                                                 # rewards left empty
-                Q_table[obs, acs, 3] = False                        # target destination?
+    return [action1, action2, action3, action4]
+
+
+def do_env_step(env, blue, red, actions):
+    if (blue == 2) and (red == 2):
+        observation, reward, done, info = env.step([actions[0], actions[1], actions[2], actions[3]])
+    elif (blue == 2) and (red == 1):
+        observation, reward, done, info = env.step([actions[0], actions[1], actions[2]])
+    elif (blue == 2) and (red == 0):
+        observation, reward, done, info = env.step([actions[0], actions[1]])
+    elif (blue == 1) and (red == 0):
+        observation, reward, done, info = env.step([actions[0]])
+    elif (blue == 1) and (red == 1):
+        observation, reward, done, info = env.step([actions[0], -1, actions[2]])
+    elif (blue == 1) and (red == 2):
+        observation, reward, done, info = env.step([actions[0], -1, actions[2], actions[3]])
+    return observation, reward, done, info
+
+
+def update_agents(env, blue, red, observation, actions, reward, info, done, steps, steps_in, total_steps, episodes):
+    # if end of episode reached
+    if (not done) and (steps == (steps_in - 1)):
+        env.Agent1.update(info[0][0], info[0][1], actions[0], reward[0], observation[0], done)
+        if blue >= 2:
+            env.Agent2.update(info[1][0], info[1][1], actions[1], reward[1], observation[1], done)
+        if red >= 1:
+            env.Agent3.update(info[2][0], info[2][1], actions[2], 1, observation[2], done)
+        if red >= 2:
+            env.Agent3.update(info[3][0], info[3][1], actions[3], 1, observation[3], done)
+        total_steps += steps
+        if (episodes % 1000) == 0:
+            print("Ep:", episodes, "destination not reached! Step:", steps)
     else:
-        for obs in range(1, states_in_env):
-            for acs in range(0, env.action_space.n):
-                Q_table[obs, acs, 0] = 1.0                          # probability
-                Q_table[obs, acs, 1] = Q_table[1, acs, 0]           # nextstate (same across destinations)
-                ...                                                 # rewards left empty
-                Q_table[obs, acs, 3] = False                       # target destination?
-    find_destination(dests)
+        env.Agent1.update(info[0][0], info[0][1], actions[0], reward[0], observation[0], done)
+        if blue >= 2:
+            env.Agent2.update(info[1][0], info[1][1], actions[1], reward[1], observation[1], done)
+        if red >= 1:
+            env.Agent3.update(info[2][0], info[2][1], actions[2], reward[2], observation[2], done)
+        if red >= 2:
+            env.Agent3.update(info[3][0], info[3][1], actions[3], reward[3], observation[3], done)
+    return total_steps
 
 
-# Q = np.zeros(env.observation_space.n, env.action_space.n)
-#
-# eta = .628
-# gma = .9
-# epis = 5000
-# rev_list = []
-#
-# for i in range(epis):
-#     # reset
-#     s = env.reset()
-#     d = False
-#
-#     # learning
-#     while d != True:
-#         env.render()
-#         # choose action
-#         a = np.argmax(Q[s,:] + np.random.randn(1, env.action_space.n) * (1./(i+1)))
-#         # get new state and reward from env
+def save_agents(env, blue, red):
+    env.Agent1.save_data('Agent1.csv')
+    if blue >= 2:
+        env.Agent2.save_data('Agent2.csv')
+    if red >= 1:
+        env.Agent3.save_data('Agent3.csv')
+    if red >= 2:
+        env.Agent4.save_data('Agent4.csv')
+
+
+# main loop
+def training_loop(
+        is_airsim, reuse=False, blue=2, red=2, episodes_in=1000000, steps_in=100, rec_paths=False,
+        obs_rate=0, rl_type=0, learning=True, moving_flag=False):
+    # set environment
+    if is_airsim:
+        env = ASGymEnv(blue, red, rl_type, moving_flag)
+    else:
+        env = GymEnv(blue, red, obs_rate, rl_type, moving_flag)
+        if rl_type == 1 or rl_type == 3:
+            red = 0
+
+    if reuse:
+        # use saved data from previous saved run
+        read_agent_data(env, blue, red)
+
+    paths = []
+    total_steps = 0
+    start_time = time.time()
+
+    # episode loop
+    for episodes in range(0, episodes_in):
+
+        # reset the environment
+        observation = env.reset()
+
+        # if paths will be saved
+        if rec_paths:
+            paths.append([[observation[0][1], observation[0][2]]])
+
+        # step loop
+        for steps in range(0, steps_in):
+            # agent(s) calculate next action
+            actions = get_actions(env, blue, red, observation)
+
+            # movement/env step taken
+            observation, reward, done, info = do_env_step(env, blue, red, actions)
+
+            # update reinforcement learning
+            if learning:
+                total_steps = update_agents(
+                    env, blue, red, observation, actions, reward, info, done, steps, steps_in, total_steps, episodes)
+
+            # if saving paths
+            if rec_paths:
+                paths[episodes].append([observation[0][1], observation[0][2]])
+
+            if done:
+                total_steps += steps
+                if (episodes % 1000) == 0:
+                    print("Ep:", episodes, "destination reached! Step:", steps)
+                break
+
+    elapsed_time = time.time() - start_time
+    print("Time elapsed: ", elapsed_time)
+    print("Average steps over all episodes: ", total_steps / episodes_in)
+
+    # save q table(s) at end of episodes
+    save_agents(env, blue, red)
+
+    # record data
+    if rec_paths:
+        if rl_type == 1 or rl_type == 3:
+            obstacle_states = env.obstacle_states
+        else:
+            obstacle_states = env.obstacle_states[2:]
+        save_paths(env.x_axis, env.y_axis, env.z_axis, blue, red, paths, obstacle_states, elapsed_time)
+
+    env.close()

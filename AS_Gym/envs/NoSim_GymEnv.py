@@ -3,21 +3,22 @@ from os.path import dirname, abspath, join
 import math
 import random
 import numpy as np
-import gym
 import airsim
+import gym
 from gym import spaces, error, utils
-from .drone_agent import DroneAgent
 from AS_Gym.q_learning import QAgent
 from AS_Gym.DQN_learning import DQN
+from AS_Gym.AC_learning import ACAgent
 from airsim import Vector3r
+import tensorflow as tf
 
 
-class ASGymEnv(gym.Env):
+class GymEnv(gym.Env):
     """Custom Gym Environment to interface AirSim"""
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, blue_agents, red_agents, rl_type, moving_flag):
-        super(ASGymEnv, self).__init__()
+    def __init__(self, blue_agents, red_agents, obs_rate, rl_type, moving_flag):
+        super(GymEnv, self).__init__()
         # Define action and observation space
         # They must be gym.spaces objects
 
@@ -61,27 +62,34 @@ class ASGymEnv(gym.Env):
         # ACTION SPACE
         # 6 movements, x+, x-, y+, y-, z+, z-
         self.action_space = spaces.Discrete(actions)
+        self.acs_format = tf.constant([actions])
 
         # OBSERVATION SPACE
         # (amount possible locations) * the amount of destinations
         if blue_agents + red_agents == 4:
-            self.observation_space = [spaces.Discrete(128), spaces.Discrete(128), spaces.Discrete(128),
-                                      spaces.Discrete(128), spaces.Discrete(128)]
+            self.observation_space = [spaces.Discrete(self.states_in_env), spaces.Discrete(self.states_in_env),
+                                      spaces.Discrete(self.states_in_env), spaces.Discrete(self.states_in_env),
+                                      spaces.Discrete(self.states_in_env)]
+            self.obs_format = tf.constant([
+                self.states_in_env, self.states_in_env, self.states_in_env, self.states_in_env, self.states_in_env])
         elif blue_agents + red_agents == 3:
-            self.observation_space = [spaces.Discrete(128), spaces.Discrete(128), spaces.Discrete(128),
-                                      spaces.Discrete(128)]
+            self.observation_space = [spaces.Discrete(self.states_in_env), spaces.Discrete(self.states_in_env),
+                                      spaces.Discrete(self.states_in_env), spaces.Discrete(self.states_in_env)]
+            self.obs_format = tf.constant([
+                self.states_in_env, self.states_in_env, self.states_in_env, self.states_in_env])
         elif blue_agents + red_agents == 2:
-            self.observation_space = [spaces.Discrete(128), spaces.Discrete(128), spaces.Discrete(128)]
+            self.observation_space = [spaces.Discrete(self.states_in_env), spaces.Discrete(self.states_in_env),
+                                      spaces.Discrete(self.states_in_env)]
+            self.obs_format = tf.constant([self.states_in_env, self.states_in_env, self.states_in_env])
         else:
-            self.observation_space = [spaces.Discrete(128), spaces.Discrete(128)]
-        self.obs_shape = 1 + blue_agents + red_agents
+            self.observation_space = [spaces.Discrete(self.states_in_env), spaces.Discrete(self.states_in_env)]
+            self.obs_format = tf.constant([self.states_in_env, self.states_in_env])
 
         # SETUP
         self.blue_agents = blue_agents
         self.red_agents = red_agents
         self.obs1_acs = 2
         self.obs2_acs = 2
-
         if (rl_type == 1) or (rl_type == 3):
             self.obstacle_drones = True
         else:
@@ -90,45 +98,85 @@ class ASGymEnv(gym.Env):
         if moving_flag:
             self.flag_acs = 2
 
+        # set obstacles, indexes 0 and 1 are assigned to counter drones if used
         self.obstacle_states = [-1, -1]
+        # get destination states to avoid
+        dest1_state = self.get_state_of_coords(dest1)
+        dest2_state = self.get_state_of_coords(dest2)
+        dest3_state = self.get_state_of_coords(dest3)
+        dest4_state = self.get_state_of_coords(dest4)
+        if obs_rate > 0:
+            for i in range(0, self.states_in_env):
+                if (i != dest1_state) and (i != dest2_state) and (i != dest3_state) and (i != dest4_state):
+                    rand = random.uniform(0, 1)
+                    if rand <= obs_rate:
+                        self.obstacle_states.append(i)
 
         self.dest_state = -1
-        self.drone_dest = DroneAgent("DroneDest")
         # setup drones
         if (rl_type == 0) or (rl_type == 1):
             # q-learning
-            self.drone_agent1 = DroneAgent("Drone1")
             self.Agent1 = QAgent(False, self.states_in_env, self.observation_space, self.action_space, config)
             if blue_agents >= 2:
-                self.drone_agent2 = DroneAgent("Drone2")
                 self.Agent2 = QAgent(False, self.states_in_env, self.observation_space, self.action_space, config)
             if red_agents >= 1:
-                self.drone_agent3 = DroneAgent("Drone3")
                 self.Agent3 = QAgent(True, self.states_in_env, self.observation_space, self.action_space, config)
             if red_agents >= 2:
-                self.drone_agent4 = DroneAgent("Drone4")
-                self.Agent4 = QAgent(True, self.states_in_env, self.observation_space, self.action_space)
-    
+                self.Agent4 = QAgent(True, self.states_in_env, self.observation_space, self.action_space, config)
+        # elif (rl_type == 2) or (rl_type == 3):
+        #     # DQN
+        #     self.Agent1 = DQN(False, self.states_in_env, self.observation_space, self.action_space, self.obs_format,
+        #                       self.acs_format, self.blue_agents, self.red_agents, config)
+        #     if blue_agents >= 2:
+        #         self.Agent2 = DQN(False, self.states_in_env, self.observation_space, self.action_space, self.obs_format,
+        #                           self.acs_format, self.blue_agents, self.red_agents, config)
+        #     if red_agents >= 1:
+        #         self.Agent3 = DQN(True, self.states_in_env, self.observation_space, self.action_space, self.obs_format,
+        #                           self.acs_format, self.blue_agents, self.red_agents, config)
+        #     if red_agents >= 2:
+        #         self.Agent4 = DQN(True, self.states_in_env, self.observation_space, self.action_space, self.obs_format,
+        #                           self.acs_format, self.blue_agents, self.red_agents, config)
+        # elif (rl_type == 4) or (rl_type == 5):
+        #     # ActorCritic
+        #     self.Agent1 = ACAgent(False, self.states_in_env, self.observation_space, self.action_space, self.obs_format,
+        #                       self.acs_format, self.blue_agents, self.red_agents, config)
+        #     if blue_agents >= 2:
+        #         self.Agent2 = ACAgent(False, self.states_in_env, self.observation_space, self.action_space, self.obs_format,
+        #                           self.acs_format, self.blue_agents, self.red_agents, config)
+        #     if red_agents >= 1:
+        #         self.Agent3 = ACAgent(True, self.states_in_env, self.observation_space, self.action_space, self.obs_format,
+        #                           self.acs_format, self.blue_agents, self.red_agents, config)
+        #     if red_agents >= 2:
+        #         self.Agent4 = ACAgent(True, self.states_in_env, self.observation_space, self.action_space, self.obs_format,
+        #                           self.acs_format, self.blue_agents, self.red_agents, config)
+
+    def move_flag_lr(self):
+        if self.get_next_state(self.dest_state, 2) == self.dest_state:
+            self.dest_state = self.get_next_state(self.dest_state, 3)
+            self.flag_acs = 3
+        elif self.get_next_state(self.dest_state, 3) == self.dest_state:
+            self.dest_state = self.get_next_state(self.dest_state, 2)
+            self.flag_acs = 2
+        else:
+            self.dest_state = self.get_next_state(self.dest_state, self.flag_acs)
+
     def step(self, actions):
         # Execute one time step within the environment
         reward = [0, 0, 0, 0]
 
+        # move counter agents
         if self.red_agents >= 1:
-            self.Agent3, self.drone_agent3, reward[2], self.obs1_acs = self.move_counter_drone(
-                self.Agent3, self.drone_agent3, actions[2], self.obs1_acs)
+            self.Agent3, reward[2], self.obs1_acs = self.move_counter_drone(self.Agent3, actions[2], self.obs1_acs)
         if self.red_agents >= 2:
-            self.Agent4, self.drone_agent4, reward[3], self.obs2_acs = self.move_counter_drone(
-                self.Agent4, self.drone_agent4, actions[3], self.obs2_acs)
+            self.Agent4, reward[3], self.obs2_acs = self.move_counter_drone(self.Agent4, actions[3], self.obs2_acs)
 
         # move path finding drones
         # agent1 always exists
-        self.Agent1, self.drone_agent1, success1, blocked_by = self.move_drone(
-            self.Agent1, self.drone_agent1, actions[0])
+        self.Agent1, success1, blocked_by = self.move_drone(self.Agent1, actions[0])
         if blocked_by != -1:
             reward[blocked_by] = 1
         if self.blue_agents >= 2:
-            self.Agent2, self.drone_agent2, success2, blocked_by = self.move_drone(
-                self.Agent2, self.drone_agent2, actions[1])
+            self.Agent2, success2, blocked_by = self.move_drone(self.Agent2, actions[1])
             if blocked_by != -1:
                 reward[blocked_by] = 1
 
@@ -142,43 +190,31 @@ class ASGymEnv(gym.Env):
         if self.moving_flag:
             self.move_flag_lr()
 
-        # return observations
+        # format data
         obs = self.format_observation()
         info = self.format_info(actions)
 
-        # return the current env state, time taken to move, is episode done, info of states
+        # return the current env state, time taken to move, is episode done, info of movement
         return obs, reward, done, info
 
     def reset(self):
         # Reset the state of the environment to an initial state
         # get a random state and moves drone to corresponding position
-        retry = True
-        while retry:
-            retry = False
-            dest = random.randint(0, len(self.destinations) - 1)
-            if not self.drone_dest.move(self.get_coords_of_state(dest)):
-                retry = True
-            self.Agent1.current_state = random.randint(0, self.states_in_env - 1)
-            if not self.drone_agent1.move(self.get_coords_of_state(self.Agent1.current_state)):
-                retry = True
-            if self.blue_agents >= 2:
-                self.Agent2.current_state = random.randint(0, self.states_in_env - 1)
-                if not self.drone_agent2.move(self.get_coords_of_state(self.Agent2.current_state)):
-                    retry = True
-            if self.red_agents >= 1:
-                self.Agent3.current_state = random.randint(0, self.states_in_env - 1)
-                if not self.drone_agent3.move(self.get_coords_of_state(self.Agent3.current_state)):
-                    retry = True
-            if self.red_agents >= 2:
-                self.Agent4.current_state = random.randint(0, self.states_in_env - 1)
-                if not self.drone_agent4.move(self.get_coords_of_state(self.Agent4.current_state)):
-                    retry = True
+        dest = random.randint(0, len(self.destinations) - 1)
+        self.Agent1.previous_state = -1
+        self.Agent1.current_state = random.randint(0, self.states_in_env - 1)
+        if self.blue_agents >= 2:
+            self.Agent2.previous_state = -1
+            self.Agent2.current_state = random.randint(0, self.states_in_env - 1)
+        if self.red_agents >= 1:
+            self.Agent3.previous_state = -1
+            self.Agent3.current_state = random.randint(0, self.states_in_env - 1)
+        if self.red_agents >= 2:
+            self.Agent4.previous_state = -1
+            self.Agent4.current_state = random.randint(0, self.states_in_env - 1)
 
         self.dest_state = self.get_state_of_coords(self.destinations[dest])
-        dest_pos = self.get_coords_of_state(self.dest_state)
-        self.dest_coords = [dest_pos.x_val, dest_pos.y_val, dest_pos.z_val]
         obs = self.format_observation()
-
         return obs
 
     def render(self, mode='human', close=False):
@@ -191,56 +227,40 @@ class ASGymEnv(gym.Env):
         else:
             return False
 
-    def move_counter_drone(self, agent, drone, action, obs_acs):
+    def move_counter_drone(self, agent, action, obs_acs):
         reward = 0
         # if drones are an obstacle or learner
         if self.obstacle_drones:
             if self.get_next_state(agent.current_state, 2) == agent.current_state:
-                new_state = self.get_next_state(agent.current_state, 3)
-                new_pos = self.get_coords_of_state(new_state)
-                if drone.move(new_pos):
-                    agent.previous_state = agent.current_state
-                    agent.current_state = self.get_next_state(agent.current_state, 3)
-                    obs_acs = 3
-                else:
-                    obs_acs = 2
+                agent.previous_state = agent.current_state
+                agent.current_state = self.get_next_state(agent.current_state, 3)
+                obs_acs = 3
             elif self.get_next_state(agent.current_state, 3) == agent.current_state:
-                new_state = self.get_next_state(agent.current_state, 2)
-                new_pos = self.get_coords_of_state(new_state)
-                if drone.move(new_pos):
-                    agent.previous_state = agent.current_state
-                    agent.current_state = self.get_next_state(agent.current_state, 2)
-                    obs_acs = 2
-                else:
-                    obs_acs = 3
+                agent.previous_state = agent.current_state
+                agent.current_state = self.get_next_state(agent.current_state, 2)
+                obs_acs = 2
             else:
-                new_state = self.get_next_state(agent.current_state, obs_acs)
-                new_pos = self.get_coords_of_state(new_state)
-                if drone.move(new_pos):
-                    agent.previous_state = agent.current_state
-                    agent.current_state = self.get_next_state(agent.current_state, obs_acs)
-                else:
-                    if obs_acs == 3:
-                        obs_acs = 2
-                    if obs_acs == 2:
-                        obs_acs = 3
+                agent.current_state = self.get_next_state(agent.current_state, obs_acs)
         else:
+            # check obstacles and move
             new_state = self.get_next_state(agent.current_state, action)
-            new_pos = self.get_coords_of_state(new_state)
-            if drone.move(new_pos):
-                reward = 0
+            if len(self.obstacle_states) == 2:
                 agent.previous_state = agent.current_state
                 agent.current_state = new_state
-            else:
-                reward = -1
+            for i in range(2, len(self.obstacle_states)):
+                if new_state == self.obstacle_states[i]:
+                    reward = -1
+                    break
+                elif i == len(self.obstacle_states) - 1:
+                    agent.previous_state = agent.current_state
+                    agent.current_state = new_state
             self.obstacle_states[0] = agent.current_state
-        return agent, drone, reward, obs_acs
+        return agent, reward, obs_acs
 
-    def move_drone(self, agent, drone, action):
+    def move_drone(self, agent, action):
         success = True
         blocked_by = -1
         new_state = self.get_next_state(agent.current_state, action)
-        new_pos = self.get_coords_of_state(new_state)
         for i in range(0, len(self.obstacle_states)):
             # check if drone has been caught by a counter drone, or blocked in next move
             if (agent.current_state == self.obstacle_states[i]) or (new_state == self.obstacle_states[i]):
@@ -251,12 +271,10 @@ class ASGymEnv(gym.Env):
                 elif i == 1:
                     blocked_by = 3
             elif (i == (len(self.obstacle_states) - 1)) and success:
-                if drone.move(new_pos):
-                    agent.previous_state = agent.current_state
-                    agent.current_state = new_state
-                else:
-                    success = False
-        return agent, drone, success, blocked_by
+                # 'move' agent
+                agent.previous_state = agent.current_state
+                agent.current_state = new_state
+        return agent, success, blocked_by
 
     def calculate_rewards(self, reward, success1, success2=False):
         done = False
@@ -313,34 +331,6 @@ class ASGymEnv(gym.Env):
                 reward[3] = negative
 
         return reward, done
-
-    def move_flag_lr(self):
-        if self.get_next_state(self.dest_state, 2) == self.dest_state:
-            new_dest = self.get_next_state(self.dest_state, 3)
-            new_dest_pos = self.get_coords_of_state(new_dest)
-            if self.drone_dest.move(new_dest_pos):
-                self.dest_state = self.get_next_state(self.dest_state, 3)
-                self.flag_acs = 3
-            else:
-                self.flag_acs = 2
-        elif self.get_next_state(self.dest_state, 3) == self.dest_state:
-            new_dest = self.get_next_state(self.dest_state, 2)
-            new_dest_pos = self.get_coords_of_state(new_dest)
-            if self.drone_dest.move(new_dest_pos):
-                self.dest_state = self.get_next_state(self.dest_state, 2)
-                self.flag_acs = 2
-            else:
-                self.flag_acs = 3
-        else:
-            new_dest = self.get_next_state(self.dest_state, self.flag_acs)
-            new_dest_pos = self.get_coords_of_state(new_dest)
-            if self.drone_dest.move(new_dest_pos):
-                self.dest_state = self.get_next_state(self.dest_state, self.flag_acs)
-            else:
-                if self.flag_acs == 3:
-                    self.flag_acs = 2
-                if self.flag_acs == 2:
-                    self.flag_acs = 3
 
     def get_euclidean(self, p, q, reward=True):
         # calculate the euclidean distance between 2 points
@@ -416,31 +406,9 @@ class ASGymEnv(gym.Env):
         y_coord = self.y_min + (self.cube_size / 2) + (self.cube_size * y)
 
         pos = Vector3r(x_coord, y_coord, z_coord)
+
         return pos
 
-    # def get_coords_of_state(self, state):
-    #     # get the location of the state on the 3d grid, unrelated to the destination
-    #     dest = math.floor(state / self.states_in_env)
-    #     obs_location = state - (self.states_in_env * dest)
-    #
-    #     xy_plane = self.x_axis * self.y_axis
-    #
-    #     z = math.floor(obs_location / xy_plane)
-    #     # center of cube = min z + half of cube size + cube size times the amount of z cubes
-    #     z_coord = self.z_min - (self.cube_size / 2) - (self.cube_size * z)
-    #
-    #     x = math.floor((obs_location - (xy_plane * z)) / self.x_axis)
-    #     x_coord = self.x_min + (self.cube_size / 2) + (self.cube_size * x)
-    #
-    #     y = (obs_location - (xy_plane * z)) - (x * self.x_axis)
-    #     y_coord = self.y_min + (self.cube_size / 2) + (self.cube_size * y)
-    #
-    #     pos = airsim.Pose.position
-    #     pos.x_val = x_coord
-    #     pos.y_val = y_coord
-    #     pos.z_val = z_coord
-    #
-    #     return pos
     def get_next_state(self, state, action):
         # get next state given current state and action, prevent movement that isn't possible
         xy_plane = self.x_axis * self.y_axis  # 16
@@ -495,77 +463,14 @@ class ASGymEnv(gym.Env):
                 return state
             # next state:
             next_state = state - xy_plane
+
         else:
             next_state = state
 
         if next_state < 0:
             return state
-        return next_state
-
-    # def get_next_state(self, state, action):
-    #     # get next state given current state and action, prevent movement that isn't possible
-    #
-    #     # get the location of the state on the 3d grid, unrelated to the destination, used for checking edges
-    #     dest = math.floor(state / self.states_in_env)  # 2
-    #     obs_location = state - (self.states_in_env * dest)  # 886 - 1 = 885
-    #
-    #     xy_plane = self.x_axis * self.y_axis
-    #
-    #     # work out next state, if not possible to move then action returns to same state
-    #     if action == 0:
-    #         # if drone at max x, no move
-    #         # if (xy_plane - self.x_axis) <= obs_location < xy_plane:
-    #         #     return state
-    #         for z in range(1, self.z_axis + 1):
-    #             if ((xy_plane * z) - self.x_axis) <= obs_location < (xy_plane * z):
-    #                 return state
-    #         # next state:
-    #         next_state = state + self.x_axis
-    #
-    #     elif action == 1:
-    #         # if drone at min x, no move
-    #         # if obs_location < self.x_axis:
-    #         #     return state
-    #         for z in range(1, self.z_axis + 1):
-    #             if obs_location < self.x_axis:
-    #                 return state
-    #             if (xy_plane * z) <= obs_location < ((xy_plane * z) + self.x_axis):
-    #                 return state
-    #         # next state:
-    #         next_state = state - self.x_axis
-    #
-    #     elif action == 2:
-    #         # if drone at max y, no move
-    #         if (obs_location + 1) % self.x_axis == 0:
-    #             return state
-    #         # next state:
-    #         next_state = state + 1
-    #
-    #     elif action == 3:
-    #         # if drone at min y, no move
-    #         if obs_location % self.x_axis == 0:
-    #             return state
-    #         # next state:
-    #         next_state = state - 1
-    #
-    #     elif action == 4:
-    #         # if drone at max z, no move
-    #         if (xy_plane * (self.z_axis - 1)) <= obs_location:
-    #             return state
-    #         # next state:
-    #         next_state = state + xy_plane
-    #
-    #     elif action == 5:
-    #         # if drone at min z, no move
-    #         if obs_location < xy_plane:
-    #             return state
-    #         # next state:
-    #         next_state = state - xy_plane
-    #     else:
-    #         next_state = state
-    #
-    #     return next_state  # + (self.states_in_env * dest)
-
+        return next_state  # + (self.states_in_env * dest)
+    
     def get_state_of_coords(self, coords):
         # given coords, find the state they reside in
 
@@ -598,42 +503,6 @@ class ASGymEnv(gym.Env):
 
         return obs_state
 
-    # def get_state_of_coords(self, coords, destination):
-    #     # given coords, find the state they reside in
-    #
-    #     # get which x, y, and z cubes the target resides in
-    #     x_count = self.x_min + self.cube_size
-    #     x = 0
-    #     while coords[0] >= x_count:
-    #         x += 1
-    #         x_count += self.cube_size
-    #     y_count = self.y_min + self.cube_size
-    #     y = 0
-    #     while coords[1] >= y_count:
-    #         y += 1
-    #         y_count += self.cube_size
-    #     z_count = self.z_min + self.cube_size
-    #     z = 0
-    #     while coords[2] >= z_count:
-    #         z += 1
-    #         z_count -= self.cube_size
-    #
-    #     xy_plane = self.x_axis * self.y_axis
-    #     obs_state = 0
-    #
-    #     for i in range(0, x):
-    #         obs_state = obs_state + self.x_axis
-    #     for i in range(0, y):
-    #         obs_state = obs_state + 1
-    #     for i in range(0, z):
-    #         obs_state = obs_state + xy_plane
-    #
-    #     # get state given destination
-    #     if destination == 0:
-    #         return obs_state
-    #     else:
-    #         return obs_state + (self.states_in_env * destination)
-
     def close(self):
-        self.drone_agent1.reset()
-        # restarts the client, only needs to be done once for any drone
+        # self.drone_agent1.reset()
+        return
