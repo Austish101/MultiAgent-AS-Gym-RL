@@ -77,6 +77,9 @@ AirSim:
     - Number of drones initialsed, and the starting location.
     - Camera type: following, manual, etc.
   - NOTE: this will need to be edited for the correct amount of drones on startup. 
+  - Defaults for this tool:
+    - Manual camera settings: "ViewMode": "Manual",
+    - In "Vehicles":"Drone1", "Drone2", "Drone3", "Drone4", "DroneDest", all with "VehicleType": "SimpleFlight" and different starting coordinates
   
   
 Files:
