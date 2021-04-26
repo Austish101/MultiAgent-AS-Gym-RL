@@ -7,8 +7,7 @@ import gym
 import airsim
 from gym import spaces, error, utils
 from .drone_agent import DroneAgent
-from AS_Gym.q_learning import QAgent
-from AS_Gym.DQN_learning import DQN
+from q_learning import QAgent
 from airsim import Vector3r
 
 
@@ -418,29 +417,6 @@ class ASGymEnv(gym.Env):
         pos = Vector3r(x_coord, y_coord, z_coord)
         return pos
 
-    # def get_coords_of_state(self, state):
-    #     # get the location of the state on the 3d grid, unrelated to the destination
-    #     dest = math.floor(state / self.states_in_env)
-    #     obs_location = state - (self.states_in_env * dest)
-    #
-    #     xy_plane = self.x_axis * self.y_axis
-    #
-    #     z = math.floor(obs_location / xy_plane)
-    #     # center of cube = min z + half of cube size + cube size times the amount of z cubes
-    #     z_coord = self.z_min - (self.cube_size / 2) - (self.cube_size * z)
-    #
-    #     x = math.floor((obs_location - (xy_plane * z)) / self.x_axis)
-    #     x_coord = self.x_min + (self.cube_size / 2) + (self.cube_size * x)
-    #
-    #     y = (obs_location - (xy_plane * z)) - (x * self.x_axis)
-    #     y_coord = self.y_min + (self.cube_size / 2) + (self.cube_size * y)
-    #
-    #     pos = airsim.Pose.position
-    #     pos.x_val = x_coord
-    #     pos.y_val = y_coord
-    #     pos.z_val = z_coord
-    #
-    #     return pos
     def get_next_state(self, state, action):
         # get next state given current state and action, prevent movement that isn't possible
         xy_plane = self.x_axis * self.y_axis  # 16
@@ -502,69 +478,6 @@ class ASGymEnv(gym.Env):
             return state
         return next_state
 
-    # def get_next_state(self, state, action):
-    #     # get next state given current state and action, prevent movement that isn't possible
-    #
-    #     # get the location of the state on the 3d grid, unrelated to the destination, used for checking edges
-    #     dest = math.floor(state / self.states_in_env)  # 2
-    #     obs_location = state - (self.states_in_env * dest)  # 886 - 1 = 885
-    #
-    #     xy_plane = self.x_axis * self.y_axis
-    #
-    #     # work out next state, if not possible to move then action returns to same state
-    #     if action == 0:
-    #         # if drone at max x, no move
-    #         # if (xy_plane - self.x_axis) <= obs_location < xy_plane:
-    #         #     return state
-    #         for z in range(1, self.z_axis + 1):
-    #             if ((xy_plane * z) - self.x_axis) <= obs_location < (xy_plane * z):
-    #                 return state
-    #         # next state:
-    #         next_state = state + self.x_axis
-    #
-    #     elif action == 1:
-    #         # if drone at min x, no move
-    #         # if obs_location < self.x_axis:
-    #         #     return state
-    #         for z in range(1, self.z_axis + 1):
-    #             if obs_location < self.x_axis:
-    #                 return state
-    #             if (xy_plane * z) <= obs_location < ((xy_plane * z) + self.x_axis):
-    #                 return state
-    #         # next state:
-    #         next_state = state - self.x_axis
-    #
-    #     elif action == 2:
-    #         # if drone at max y, no move
-    #         if (obs_location + 1) % self.x_axis == 0:
-    #             return state
-    #         # next state:
-    #         next_state = state + 1
-    #
-    #     elif action == 3:
-    #         # if drone at min y, no move
-    #         if obs_location % self.x_axis == 0:
-    #             return state
-    #         # next state:
-    #         next_state = state - 1
-    #
-    #     elif action == 4:
-    #         # if drone at max z, no move
-    #         if (xy_plane * (self.z_axis - 1)) <= obs_location:
-    #             return state
-    #         # next state:
-    #         next_state = state + xy_plane
-    #
-    #     elif action == 5:
-    #         # if drone at min z, no move
-    #         if obs_location < xy_plane:
-    #             return state
-    #         # next state:
-    #         next_state = state - xy_plane
-    #     else:
-    #         next_state = state
-    #
-    #     return next_state  # + (self.states_in_env * dest)
 
     def get_state_of_coords(self, coords):
         # given coords, find the state they reside in
@@ -597,42 +510,6 @@ class ASGymEnv(gym.Env):
             obs_state = obs_state + xy_plane
 
         return obs_state
-
-    # def get_state_of_coords(self, coords, destination):
-    #     # given coords, find the state they reside in
-    #
-    #     # get which x, y, and z cubes the target resides in
-    #     x_count = self.x_min + self.cube_size
-    #     x = 0
-    #     while coords[0] >= x_count:
-    #         x += 1
-    #         x_count += self.cube_size
-    #     y_count = self.y_min + self.cube_size
-    #     y = 0
-    #     while coords[1] >= y_count:
-    #         y += 1
-    #         y_count += self.cube_size
-    #     z_count = self.z_min + self.cube_size
-    #     z = 0
-    #     while coords[2] >= z_count:
-    #         z += 1
-    #         z_count -= self.cube_size
-    #
-    #     xy_plane = self.x_axis * self.y_axis
-    #     obs_state = 0
-    #
-    #     for i in range(0, x):
-    #         obs_state = obs_state + self.x_axis
-    #     for i in range(0, y):
-    #         obs_state = obs_state + 1
-    #     for i in range(0, z):
-    #         obs_state = obs_state + xy_plane
-    #
-    #     # get state given destination
-    #     if destination == 0:
-    #         return obs_state
-    #     else:
-    #         return obs_state + (self.states_in_env * destination)
 
     def close(self):
         self.drone_agent1.reset()

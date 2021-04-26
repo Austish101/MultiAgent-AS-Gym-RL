@@ -6,9 +6,7 @@ import numpy as np
 import airsim
 import gym
 from gym import spaces, error, utils
-from AS_Gym.q_learning import QAgent
-from AS_Gym.DQN_learning import DQN
-from AS_Gym.AC_learning import ACAgent
+from q_learning import QAgent
 from airsim import Vector3r
 import tensorflow as tf
 
