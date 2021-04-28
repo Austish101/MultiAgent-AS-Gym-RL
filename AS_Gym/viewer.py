@@ -142,7 +142,10 @@ def text_view():
             drones = []
             coords = []
             for d in range(0, drone_count):
-                drones.append(episode[user_ep][step][d+1])
+                if (d >= 1) and (blue_count == 1):
+                    drones.append(episode[user_ep][step][d + 2])
+                else:
+                    drones.append(episode[user_ep][step][d + 1])
                 coords.append(get_axis_of_state(drones[d], x_axis, y_axis))
 
             if step == 0:
