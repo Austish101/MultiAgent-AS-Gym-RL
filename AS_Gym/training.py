@@ -56,28 +56,14 @@ def do_env_step(env, blue, red, actions):
     return observation, reward, done, info
 
 
-def update_agents(env, blue, red, observation, actions, reward, info, done, steps, steps_in, total_steps, episodes):
-    # if end of episode reached
-    if (not done) and (steps == (steps_in - 1)):
-        env.Agent1.update(info[0][0], info[0][1], actions[0], reward[0], observation[0], done)
-        if blue >= 2:
-            env.Agent2.update(info[1][0], info[1][1], actions[1], reward[1], observation[1], done)
-        if red >= 1:
-            env.Agent3.update(info[2][0], info[2][1], actions[2], 1, observation[2], done)
-        if red >= 2:
-            env.Agent3.update(info[3][0], info[3][1], actions[3], 1, observation[3], done)
-        total_steps += steps
-        if (episodes % 1000) == 0:
-            print("Ep:", episodes, "destination not reached! Step:", steps)
-    else:
-        env.Agent1.update(info[0][0], info[0][1], actions[0], reward[0], observation[0], done)
-        if blue >= 2:
-            env.Agent2.update(info[1][0], info[1][1], actions[1], reward[1], observation[1], done)
-        if red >= 1:
-            env.Agent3.update(info[2][0], info[2][1], actions[2], reward[2], observation[2], done)
-        if red >= 2:
-            env.Agent3.update(info[3][0], info[3][1], actions[3], reward[3], observation[3], done)
-    return total_steps
+def update_agents(env, blue, red, observation, actions, reward, info, done):
+    env.Agent1.update(info[0][0], info[0][1], actions[0], reward[0], observation[0], done)
+    if blue >= 2:
+        env.Agent2.update(info[1][0], info[1][1], actions[1], reward[1], observation[1], done)
+    if red >= 1:
+        env.Agent3.update(info[2][0], info[2][1], actions[2], reward[2], observation[2], done)
+    if red >= 2:
+        env.Agent3.update(info[3][0], info[3][1], actions[3], reward[3], observation[3], done)
 
 
 def save_agents(env, blue, red):
@@ -130,8 +116,13 @@ def training_loop(
 
             # update reinforcement learning
             if learning:
-                total_steps = update_agents(
-                    env, blue, red, observation, actions, reward, info, done, steps, steps_in, total_steps, episodes)
+                # if end of episode reached, update counter agents with goal reward
+                if (not done) and (steps == steps_in - 1):
+                    total_steps += steps
+                    if (episodes % 1000) == 0:
+                        update_agents(env, blue, red, observation, actions, [reward[0], reward[1], 1, 1], info, done)
+                    else:
+                        update_agents(env, blue, red, observation, actions, reward, info, done)
 
             # if saving paths
             if rec_paths:
